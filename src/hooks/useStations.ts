@@ -7,7 +7,7 @@ const STATIONS_URL = API_BASE
   : 'https://api.citybik.es/v2/networks/bicicletar'
 
 async function fetchStations(): Promise<NetworkResponse> {
-  const res = await fetch(STATIONS_URL)
+  const res = await fetch(STATIONS_URL, { cache: 'no-store' })
   if (!res.ok) throw new Error(`Erro ao buscar dados: ${res.status}`)
   return res.json() as Promise<NetworkResponse>
 }
