@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
+import { Search, X } from 'lucide-react'
 import type { Station } from '../types/citybikes'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 
 interface Props {
   stations: Station[]
@@ -32,19 +35,9 @@ export function SearchBox({ stations, onSelect }: Props) {
 
   return (
     <div ref={containerRef} className="relative">
-      <div className="flex items-center gap-1.5 bg-gray-100 rounded-lg px-2.5 py-1.5">
-        <svg
-          className="h-3.5 w-3.5 text-gray-400 shrink-0"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-          viewBox="0 0 24 24"
-        >
-          <circle cx="11" cy="11" r="8" />
-          <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35" />
-        </svg>
-        <input
-          type="text"
+      <div className="relative flex items-center">
+        <Search className="absolute left-2.5 size-3.5 text-muted-foreground pointer-events-none" />
+        <Input
           value={query}
           onChange={e => {
             setQuery(e.target.value)
@@ -52,30 +45,27 @@ export function SearchBox({ stations, onSelect }: Props) {
           }}
           onFocus={() => query.length >= 2 && setOpen(true)}
           placeholder="Buscar estação…"
-          className="bg-transparent text-xs text-gray-700 placeholder:text-gray-400 outline-none w-36"
+          className="h-8 w-40 pl-8 pr-7 text-xs"
         />
         {query && (
-          <button
-            onClick={() => {
-              setQuery('')
-              setOpen(false)
-            }}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => { setQuery(''); setOpen(false) }}
+            className="absolute right-0 size-8 text-muted-foreground hover:text-foreground"
           >
-            <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+            <X />
+          </Button>
         )}
       </div>
 
       {open && suggestions.length > 0 && (
-        <div className="absolute top-full left-0 mt-1 w-56 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-50">
+        <div className="absolute top-full left-0 mt-1 w-56 bg-popover rounded-md border shadow-md overflow-hidden z-50">
           {suggestions.map(station => (
             <button
               key={station.id}
               onClick={() => handleSelect(station)}
-              className="w-full text-left px-3 py-2 text-xs text-gray-700 font-medium hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0"
+              className="w-full text-left px-3 py-2 text-xs text-foreground font-medium hover:bg-accent hover:text-accent-foreground transition-colors border-b border-border/50 last:border-0"
             >
               {station.name}
             </button>

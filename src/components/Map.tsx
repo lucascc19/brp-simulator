@@ -8,6 +8,14 @@ import { useMapControl } from "../hooks/useMapControl";
 import { useStations } from "../hooks/useStations";
 import type { Station, StationStatus } from "../types/citybikes";
 import { getCapacity, getStationStatus } from "../types/citybikes";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { FilterBar } from "./FilterBar";
 import { RouteLayer } from "./RouteLayer";
 import { SearchBox } from "./SearchBox";
@@ -30,14 +38,14 @@ function MapRefSetter({
 }
 
 export function MapView() {
-  const { data, isLoading, isError, dataUpdatedAt } = useStations();
+  const { data, isLoading, isError } = useStations();
   const [selected, setSelected] = useState<Station | null>(null);
   const [activeFilters, setActiveFilters] = useState<StationStatus[]>([
     "ok",
     "low",
     "empty",
   ]);
-  const [stationLimit, setStationLimit] = useState<number | null>(null);
+  const [stationLimit, setStationLimit] = useState<string>("all");
   const [showSimulatedState, setShowSimulatedState] = useState(false);
 
   const { mapRef, flyToStation } = useMapControl();
@@ -49,7 +57,8 @@ export function MapView() {
   const [showSimulator, setShowSimulator] = useState(false);
 
   const stations = data?.network.stations ?? [];
-  const limitedStations = stationLimit
+  const stationLimitNum = stationLimit !== "all" ? Number(stationLimit) : null;
+  const limitedStations = stationLimitNum
     ? [...stations]
         .sort(
           (a, b) =>
@@ -66,15 +75,13 @@ export function MapView() {
               b.longitude,
             ),
         )
-        .slice(0, stationLimit)
+        .slice(0, stationLimitNum)
     : stations;
 
-  // Map of stationId → bikes after simulation (from route steps)
   const simulatedMap = new Map<string, number>(
     route?.steps.map((s) => [s.station.id, s.stationBikesAfter] as [string, number]) ?? [],
   );
 
-  // When showSimulatedState, replace free_bikes/empty_slots with simulation result
   const effectiveStations = showSimulatedState
     ? limitedStations.map((s) => {
         const simBikes = simulatedMap.get(s.id);
@@ -87,9 +94,6 @@ export function MapView() {
   const visibleStations = effectiveStations.filter((s) =>
     activeFilters.includes(getStationStatus(s)),
   );
-  const updatedAt = dataUpdatedAt
-    ? new Date(dataUpdatedAt).toLocaleTimeString("pt-BR")
-    : null;
 
   useEffect(() => {
     if (!isAnimating || !route) return;
@@ -112,7 +116,6 @@ export function MapView() {
     setShowSimulatedState(false);
   }
 
-  // Always open card with original (live) station data
   function handleStationClick(s: Station) {
     const original = limitedStations.find((ls) => ls.id === s.id) ?? s;
     setSelected(original);
@@ -144,9 +147,10 @@ export function MapView() {
   return (
     <div className="relative h-full w-full">
       {/* Header bar */}
-      <div className="absolute top-0 left-0 right-0 z-1000 flex items-center justify-between gap-3 bg-white/90 backdrop-blur-sm px-5 py-3 shadow-sm border-b border-gray-100">
-        <div className="flex items-center gap-2.5">
-          <div className="h-8 w-8 rounded-xl bg-green-600 flex items-center justify-center shrink-0">
+      <div className="absolute top-0 left-0 right-0 z-1000 flex items-center justify-between gap-3 bg-background/90 backdrop-blur-sm px-5 py-2.5 shadow-sm border-b">
+        {/* Logo */}
+        <div className="flex items-center gap-2.5 shrink-0">
+          <div className="h-8 w-8 rounded-xl bg-green-600 flex items-center justify-center">
             <svg
               className="h-4 w-4 text-white"
               fill="none"
@@ -154,89 +158,62 @@ export function MapView() {
               strokeWidth={2.5}
               viewBox="0 0 24 24"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 21c0 0-8-6-8-12a8 8 0 0116 0c0 6-8 12-8 12z"
-              />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 21c0 0-8-6-8-12a8 8 0 0116 0c0 6-8 12-8 12z" />
               <circle cx="12" cy="9" r="2.5" />
             </svg>
           </div>
           <div>
-            <h1 className="text-sm font-bold text-gray-900 leading-none">
-              Bicicletar
-            </h1>
-            <p className="text-xs text-gray-400 mt-0.5">
-              {showSimulatedState
-                ? "Visualizando resultado simulado"
-                : "Fortaleza, CE"}
+            <h1 className="text-sm font-bold text-foreground leading-none">Bicicletar</h1>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {showSimulatedState ? "Visualizando resultado simulado" : "Fortaleza, CE"}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           {!isLoading && !isError && (
             <div className="hidden sm:flex items-center gap-2">
-              <FilterBar
-                activeFilters={activeFilters}
-                onChange={setActiveFilters}
-              />
-              <div className="w-px h-4 bg-gray-200" />
-              <SearchBox
-                stations={limitedStations}
-                onSelect={handleSearchSelect}
-              />
-              <div className="w-px h-4 bg-gray-200" />
-              <select
-                value={stationLimit ?? ""}
-                onChange={(e) =>
-                  setStationLimit(
-                    e.target.value ? Number(e.target.value) : null,
-                  )
-                }
-                className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600 bg-white cursor-pointer"
-                title="Limitar estações visíveis"
-              >
-                <option value={25}>25 est.</option>
-                <option value={50}>50 est.</option>
-                <option value={100}>100 est.</option>
-                <option value="">Todas</option>
-              </select>
+              <FilterBar activeFilters={activeFilters} onChange={setActiveFilters} />
+              <div className="w-px h-4 bg-border" />
+              <SearchBox stations={limitedStations} onSelect={handleSearchSelect} />
+              <div className="w-px h-4 bg-border" />
+              <Select value={stationLimit} onValueChange={setStationLimit}>
+                <SelectTrigger className="h-8 w-24 text-xs" title="Limitar estações visíveis">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="25">25 est.</SelectItem>
+                  <SelectItem value="50">50 est.</SelectItem>
+                  <SelectItem value="100">100 est.</SelectItem>
+                  <SelectItem value="all">Todas</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           )}
 
-          <div className="flex items-center gap-1.5 text-xs text-gray-400">
+          {/* Station count indicator */}
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             {isLoading && (
               <span className="h-2 w-2 rounded-full bg-blue-400 animate-pulse inline-block" />
             )}
-            {isError && <span className="text-red-500">Erro ao carregar</span>}
+            {isError && <span className="text-destructive text-xs">Erro ao carregar</span>}
             {!isLoading && !isError && (
               <>
-                <span
-                  className={`h-2 w-2 rounded-full inline-block ${showSimulatedState ? "bg-indigo-400" : "bg-green-400"}`}
-                />
-                <span>
-                  {visibleStations.length}/{limitedStations.length}
-                </span>
-                {updatedAt && (
-                  <span className="hidden sm:inline">· {updatedAt}</span>
-                )}
+                <span className={`h-2 w-2 rounded-full inline-block ${showSimulatedState ? "bg-indigo-400" : "bg-green-400"}`} />
+                <span>{visibleStations.length}/{limitedStations.length}</span>
               </>
             )}
           </div>
 
-          {/* Simulator toggle */}
-          <button
+          <Button
             onClick={() => setShowSimulator((s) => !s)}
             disabled={stations.length === 0}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-40 ${
-              showSimulator
-                ? "bg-gray-900 text-white"
-                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-            }`}
+            variant={showSimulator ? "default" : "outline"}
+            size="sm"
+            className="text-xs"
           >
-            🗺️ Simular
-          </button>
+            Simular
+          </Button>
         </div>
       </div>
 
@@ -285,27 +262,21 @@ export function MapView() {
 
       {/* Loading overlay */}
       {isLoading && (
-        <div className="absolute inset-0 z-999 flex items-center justify-center bg-white/60 backdrop-blur-sm">
+        <div className="absolute inset-0 z-999 flex items-center justify-center bg-background/60 backdrop-blur-sm">
           <div className="flex flex-col items-center gap-3">
             <div className="h-10 w-10 rounded-full border-4 border-green-600 border-t-transparent animate-spin" />
-            <p className="text-sm text-gray-600 font-medium">
-              Carregando estações…
-            </p>
+            <p className="text-sm text-foreground font-medium">Carregando estações…</p>
           </div>
         </div>
       )}
 
       {/* Error overlay */}
       {isError && (
-        <div className="absolute inset-0 z-999 flex items-center justify-center bg-white/80">
+        <div className="absolute inset-0 z-999 flex items-center justify-center bg-background/80">
           <div className="text-center px-6">
             <p className="text-4xl mb-3">⚠️</p>
-            <p className="text-base font-semibold text-gray-800">
-              Não foi possível carregar as estações
-            </p>
-            <p className="text-sm text-gray-500 mt-1">
-              Verifique sua conexão e tente novamente.
-            </p>
+            <p className="text-base font-semibold text-foreground">Não foi possível carregar as estações</p>
+            <p className="text-sm text-muted-foreground mt-1">Verifique sua conexão e tente novamente.</p>
           </div>
         </div>
       )}
