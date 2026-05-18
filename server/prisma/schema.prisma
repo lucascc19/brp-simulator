@@ -1,0 +1,31 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Station {
+  id        String     @id
+  name      String
+  latitude  Float
+  longitude Float
+  capacity  Int
+  createdAt DateTime   @default(now())
+  snapshots Snapshot[]
+}
+
+model Snapshot {
+  id         Int      @id @default(autoincrement())
+  stationId  String
+  freeBikes  Int
+  emptySlots Int
+  // Passed explicitly from sync so all stations in one batch share the exact same timestamp
+  fetchedAt  DateTime
+  station    Station  @relation(fields: [stationId], references: [id])
+
+  @@index([stationId, fetchedAt])
+  @@index([fetchedAt])
+}
