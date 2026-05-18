@@ -13,9 +13,16 @@
 | 2 | GRASP | ✅ Concluído |
 | 2 | RouteLayer + animação | ✅ Concluído |
 | 2 | SimulatorPanel + RouteStats | ✅ Concluído |
-| 3 | Estado pós-simulação nos markers | ⏳ Pendente |
-| 3 | StationCard com comparativo antes/depois | ⏳ Pendente |
-| 3 | Toggle "Estado real / Resultado" | ⏳ Pendente |
+| 3 | Estado pós-simulação nos markers | ✅ Concluído |
+| 3 | StationCard com comparativo antes/depois | ✅ Concluído |
+| 3 | Toggle "Estado real / Resultado" | ✅ Concluído |
+| 4 | Docker + PostgreSQL + Prisma schema | ✅ Concluído |
+| 4 | Sync Service + cron | ✅ Concluído |
+| 4 | API REST (Fastify) | ✅ Concluído |
+| 4 | Trocar URL no useStations | ✅ Concluído |
+| 5 | Repositório GitHub | ✅ Concluído |
+| 5 | Deploy backend (Railway) | ✅ Concluído |
+| 5 | Deploy frontend (Vercel) | ✅ Concluído |
 
 ---
 
@@ -41,20 +48,6 @@ src/
 | `src/components/Map.tsx` | recebe `activeFilters` e `searchQuery`; exibe `FilterBar` e `SearchBox` no header; filtra os markers antes de renderizar |
 | `src/App.tsx` | mantém estado `activeFilters: StationStatus[]` e repassa para `Map` |
 
-### Fluxo de estado
-
-```
-App
- └── activeFilters: StationStatus[]   ← ['ok', 'low', 'empty'] por default
-      └── Map → StationMarker (só renderiza se status ∈ activeFilters)
-          └── FilterBar → toggle de cada status
-
- └── SearchBox (dentro do Map)
-      ├── filtra stations pelo nome
-      ├── mostra dropdown com até 5 sugestões
-      └── ao selecionar → flyTo(station) + abre StationCard
-```
-
 ---
 
 ## Fase 2 — Simulador de Rota
@@ -67,8 +60,9 @@ App
 src/
 ├── algorithms/
 │   ├── types.ts            ← RouteInput, RouteStep, RouteResult
+│   ├── utils.ts            ← selectCandidates, simulateTruck (implicit depot reload)
 │   ├── greedy.ts           ← algoritmo guloso determinístico
-│   └── grasp.ts            ← GRASP (construção + busca local)
+│   └── grasp.ts            ← GRASP (construção + busca local pairwise)
 └── components/
     ├── SimulatorPanel.tsx  ← controles: selecionar algo, configurar, rodar
     ├── RouteLayer.tsx      ← Polyline da rota + ícone do caminhão no mapa
@@ -81,156 +75,63 @@ src/
 interface RouteStep {
   station: Station
   action: 'pickup' | 'delivery' | 'balanced'
-  quantity: number        // bikes coletadas (+) ou entregues (-)
-  truckLoad: number       // carga no caminhão após a visita
+  quantity: number           // bikes coletadas (+) ou entregues (-)
+  truckLoad: number          // carga no caminhão após a visita
+  stationBikesAfter: number  // bikes na estação após a visita
 }
 
 interface RouteResult {
   algorithm: 'greedy' | 'grasp'
   steps: RouteStep[]
-  totalDistance: number   // km (distância euclidiana acumulada)
+  totalDistance: number      // km (distância euclidiana acumulada)
   residualImbalance: number  // soma de |Q_i - target| após a rota
   executionMs: number
 }
 ```
 
-### Algoritmos
+### Detalhes de implementação
 
-**Guloso** — determinístico, O(n²):
-1. Começa na estação com maior desequilíbrio
-2. A cada passo, escolhe o vizinho não atendido com maior `|Q_i - 10|`
-3. Atende a estação (coleta ou entrega), respeita capacidade 20
-4. Para quando todas estão balanceadas ou caminhão precisa retornar
+**`selectCandidates`** — divide os top-N candidatos em 50% fontes de coleta + 50% destinos de entrega, evitando que o caminhão comece sem conseguir atender nenhuma estação quando o sistema está majoritariamente vazio.
 
-**GRASP** — probabilístico, `k` iterações:
-1. **Construção:** roleta viciada nos vizinhos (peso proporcional ao desequilíbrio)
-2. **Busca local:** testa trocas de pares de estações na rota; aceita se reduzir distância total
-3. Repete por `k = 30` iterações; guarda melhor resultado
-
-### Animação da rota
-
-```
-SimulatorPanel
- ├── botão "Executar" → calcula RouteResult
- ├── botão "Animar" → avança currentStep via setInterval (velocidade ajustável)
- └── RouteLayer
-      ├── <Polyline> com a sequência completa (cinza)
-      ├── <Polyline> com os passos já percorridos (verde/laranja)
-      └── <Marker> caminhão na posição currentStep
-```
-
-### Painel de resultados (`RouteStats`)
-
-- Distância total percorrida
-- Desequilíbrio residual (quantidade de bikes fora do alvo)
-- Tempo de execução
-- Comparativo lado a lado quando ambos os algoritmos são rodados
+**Implicit depot reload** — antes de visitar cada estação, se o caminhão está cheio e a próxima ação é coleta, ou vazio e é entrega, reseta a carga (simula uma parada implícita no depósito). Permite multi-trip sem modelar o depósito explicitamente.
 
 ---
 
 ## Fase 3 — Estado Pós-Simulação
 
-**Objetivo:** ao fim da simulação, atualizar os markers do mapa com o estado resultante de cada estação e exibir um comparativo antes/depois no StationCard, permitindo avaliar visualmente a qualidade do balanceamento.
+**Objetivo:** ao fim da simulação, atualizar os markers do mapa com o estado resultante de cada estação e exibir um comparativo antes/depois no StationCard.
 
-### Nenhum arquivo novo — apenas modificações
+### Mudanças implementadas
 
-| Arquivo | O que muda |
-|---------|------------|
-| `src/components/Map.tsx` | estado `showSimulatedState`; deriva `simulatedMap` e `effectiveStations`; repassa toggle para `RouteStats` via `AnimationControls` |
-| `src/components/StationMarker.tsx` | prop `visited?: boolean`; quando visitado, renderiza anel/halo ao redor do pin |
-| `src/components/StationCard.tsx` | prop `simulatedBikes?: number`; mostra seção antes/depois com duas barras de ocupação e delta |
-| `src/components/RouteStats.tsx` | adiciona `showSimulatedState` + `onToggleSimulatedView` em `AnimationControls`; exibe botão de toggle |
-| `src/components/SimulatorPanel.tsx` | passa os novos campos de `AnimationControls` adiante |
+| Arquivo | O que mudou |
+|---------|-------------|
+| `src/components/Map.tsx` | `simulatedMap: Map<stationId, bikesAfter>` derivado de `route.steps`; `effectiveStations` substitui contagens quando `showSimulatedState=true` |
+| `src/components/StationMarker.tsx` | prop `visited?: boolean`; badge indigo no canto superior direito do pin quando visitado |
+| `src/components/StationCard.tsx` | prop `simulatedBikes?: number`; seção "Resultado Simulado" com barras antes/depois e delta |
+| `src/components/RouteStats.tsx` | botão toggle "Ver resultado / Ver estado real" em `AnimationControls` |
 
 ### Fluxo de estado
 
 ```
 Map.tsx
   showSimulatedState: boolean              ← false por default; reset ao calcular nova rota
-  simulatedMap: Map<stationId, bikesAfter> ← derivado de route.steps (já existe stationBikesAfter)
+  simulatedMap: Map<stationId, bikesAfter> ← derivado de route.steps
 
   effectiveStations = showSimulatedState
-    ? limitedStations.map(s =>
-        simulatedMap.has(s.id)
-          ? { ...s, free_bikes: simulatedMap.get(s.id)!,
-                    empty_slots: capacity(s) - simulatedMap.get(s.id)! }
-          : s)
-    : limitedStations
+    ? limitedStations com free_bikes substituído pelo valor simulado
+    : limitedStations (estado real da API)
 
-  visibleStations = effectiveStations.filter(activeFilters)   ← cores dos markers refletem estado simulado
-
-  → StationMarker
-      station = effectiveStation          ← recebe estado já substituído; lógica de cor inalterada
-      visited = simulatedMap.has(s.id) && showSimulatedState
-
-  → StationCard
-      station = original (live)
-      simulatedBikes = simulatedMap.get(selected.id)   ← undefined se não visitada
-
-  → SimulatorPanel → RouteStats
-      showSimulatedState, onToggleSimulatedView
+  → StationMarker: visited = simulatedMap.has(s.id) && showSimulatedState
+  → StationCard:   simulatedBikes = simulatedMap.get(selected.id)
 ```
-
-### Detalhes de cada mudança
-
-#### `StationMarker.tsx` — anel de visita
-
-Quando `visited=true`, adiciona ao SVG um círculo semi-transparente ao redor do pin:
-
-```svg
-<!-- anel verde/violeta ao redor do teardrop -->
-<circle cx="14" cy="14" r="16" fill="none" stroke="${color}" stroke-width="2.5" stroke-opacity="0.4"/>
-```
-
-Cores do anel: verde para Guloso, violeta para GRASP (mesmo `ALGO_COLOR` do `RouteLayer`).
-
-#### `StationCard.tsx` — seção antes/depois
-
-Renderizada apenas quando `simulatedBikes` está definido:
-
-```
-┌─────────────────────────────────────────┐
-│  Antes   [████░░░░░░░░]  5 bikes  42%   │
-│  Depois  [████████░░░░]  10 bikes  83%  │
-│                               Δ +5 bikes │
-└─────────────────────────────────────────┘
-```
-
-O delta é colorido: verde se melhorou (|simulado - target| < |real - target|), vermelho se piorou.
-
-#### `RouteStats.tsx` — botão de toggle
-
-Adicionado junto aos controles de animação, visível somente quando `route != null`:
-
-```
-[ ↺ ]  [ ▶ Animar ]  [ 1× ▾ ]  [ 🗺 Ver resultado ]
-                                 ↑ ou "Ver estado real"
-```
-
-O botão alterna `showSimulatedState`. Quando ativo, um badge discreto no header do mapa pode indicar "Visualizando resultado simulado".
-
-### Dados já disponíveis (sem mudança de algoritmo)
-
-`RouteStep.stationBikesAfter` já é calculado em `greedy.ts` e `utils.ts` (simulateTruck). O dado necessário para toda a Fase 3 já existe — só falta expô-lo na UI.
-
-### Casos de borda
-
-| Situação | Comportamento |
-|----------|---------------|
-| Estação não visitada pelo algoritmo | marker mantém estado real; StationCard não exibe seção antes/depois |
-| Estação visitada mas com `action: 'none'` | `stationBikesAfter === free_bikes`; delta = 0; seção exibida mas sem alteração |
-| Nova rota calculada | `showSimulatedState` volta a `false` automaticamente |
-| Filtro de status ativo no modo simulado | filtra pela cor **simulada** (não real) |
 
 ---
 
 ## Fase 4 — Backend Próprio (Prisma + Docker + API REST)
 
-**Objetivo:** eliminar dependência exclusiva da API CityBikes armazenando snapshots das estações em banco de dados próprio, expondo uma API REST compatível com o frontend e habilitando consulta de dados históricos.
+**Objetivo:** eliminar dependência exclusiva da API CityBikes armazenando snapshots em banco próprio, expondo API REST compatível com o frontend.
 
----
-
-### Visão geral da arquitetura
+### Arquitetura
 
 ```
 ┌─────────────┐   cron (5 min)   ┌──────────────────┐
@@ -241,184 +142,105 @@ O botão alterna `showSimulatedState`. Quando ativo, um badge discreto no header
                                           ▼
                                  ┌──────────────────┐
                                  │   PostgreSQL     │
-                                 │   (Docker)       │
                                  │  Station         │
                                  │  Snapshot        │
                                  └────────┬─────────┘
                                           │ Prisma
                                           ▼
 ┌─────────────┐   fetch           ┌──────────────────┐
-│  React UI   │ ─────────────── ▶│  API REST        │
-│  (Vite)     │                  │  (Fastify/Express)│
+│  React UI   │ ─────────────── ▶│  Fastify API     │
+│  (Vite)     │                  │  /api/stations   │
 └─────────────┘                  └──────────────────┘
 ```
-
----
 
 ### Estrutura de arquivos
 
 ```
 brp-simulator/
-├── src/                         ← frontend (sem mudanças estruturais)
+├── src/
 │   └── hooks/
-│       └── useStations.ts       ← troca URL para VITE_API_URL
+│       └── useStations.ts       ← usa VITE_API_URL; fallback para CityBikes
 ├── server/
 │   ├── prisma/
 │   │   ├── schema.prisma        ← modelos Station + Snapshot
 │   │   └── migrations/          ← gerado pelo Prisma
 │   ├── src/
-│   │   ├── index.ts             ← entry point (Fastify app + cron)
+│   │   ├── index.ts             ← Fastify app + cron + initial sync
 │   │   ├── db.ts                ← instância do PrismaClient
 │   │   ├── sync.ts              ← fetch CityBikes → upsert DB
 │   │   └── routes/
-│   │       └── stations.ts      ← GET /api/stations, /history, /snapshots
+│   │       └── stations.ts      ← GET /api/stations, /history, /snapshots, POST /sync
 │   ├── package.json
 │   └── tsconfig.json
 ├── docker-compose.yml           ← PostgreSQL 16
-└── .env                         ← DATABASE_URL, VITE_API_URL, SYNC_INTERVAL_MS
+├── railway.toml                 ← config de build/start para Railway
+└── .env                         ← DATABASE_URL, VITE_API_URL, SYNC_INTERVAL_CRON
 ```
-
----
-
-### Schema Prisma (`server/prisma/schema.prisma`)
-
-```prisma
-model Station {
-  id        String     @id          // id da CityBikes API
-  name      String
-  latitude  Float
-  longitude Float
-  capacity  Int                     // free_bikes + empty_slots no primeiro sync
-  createdAt DateTime   @default(now())
-  snapshots Snapshot[]
-}
-
-model Snapshot {
-  id         Int      @id @default(autoincrement())
-  stationId  String
-  freeBikes  Int
-  emptySlots Int
-  fetchedAt  DateTime @default(now())
-  station    Station  @relation(fields: [stationId], references: [id])
-
-  @@index([stationId, fetchedAt])
-  @@index([fetchedAt])             // consultas por janela de tempo
-}
-```
-
----
 
 ### API REST
 
 | Método | Rota | Descrição |
 |--------|------|-----------|
-| `GET` | `/api/stations` | Estado atual de todas as estações (último snapshot) — **mesma shape da CityBikes API** |
-| `GET` | `/api/stations/:id/history?from=&to=` | Histórico de snapshots de uma estação num intervalo |
-| `GET` | `/api/snapshots/timestamps` | Lista de `fetchedAt` únicos disponíveis |
-| `GET` | `/api/stations?at=<ISO>` | Estado de todas as estações num snapshot específico |
-| `POST` | `/api/sync` | Dispara sync manual (útil em dev) |
+| `GET` | `/api/stations[?at=<ISO>]` | Estado atual (ou histórico) — shape idêntica à CityBikes API |
+| `GET` | `/api/stations/:id/history` | Histórico de snapshots com `from`, `to`, `limit` |
+| `GET` | `/api/snapshots/timestamps` | Lista de timestamps de sync disponíveis |
+| `POST` | `/api/sync` | Dispara sync manual |
+| `GET` | `/health` | Health check |
 
-O endpoint `GET /api/stations` retorna exatamente a shape da CityBikes API:
+### Decisões técnicas
 
+- `fetchedAt` sem `@default(now())` — passado explicitamente pelo sync para garantir que todos os snapshots de um mesmo batch tenham o **exato mesmo timestamp**, tornando o `groupBy` confiável.
+- Build command **não** inclui `prisma migrate deploy` — o hostname interno do Railway (`postgres.railway.internal`) só está disponível em runtime, não durante o build. O migrate roda no `startCommand`.
+
+---
+
+## Fase 5 — Deploy
+
+**Objetivo:** disponibilizar a aplicação publicamente com backend persistente.
+
+### Infraestrutura
+
+| Serviço | Plataforma | URL |
+|---------|------------|-----|
+| Frontend (React/Vite) | Vercel | https://brp-simulator.vercel.app |
+| Backend (Fastify) | Railway | https://brp-simulator-production.up.railway.app |
+| Banco de dados | Railway (Postgres plugin) | interno ao projeto Railway |
+
+### Configuração
+
+**Railway (`railway.toml` na raiz do repo):**
+```toml
+[build]
+buildCommand = "cd server && npm install && npm run build"
+
+[deploy]
+startCommand = "cd server && npm run db:deploy && npm start"
+healthcheckPath = "/health"
+```
+
+**Vercel (`vercel.json` na raiz do repo):**
 ```json
 {
-  "network": {
-    "stations": [
-      {
-        "id": "...", "name": "...",
-        "free_bikes": 5, "empty_slots": 15,
-        "latitude": -3.73, "longitude": -38.52,
-        "timestamp": "2025-05-17T18:00:00Z",
-        "extra": {}
-      }
-    ]
-  }
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }
 ```
 
-Isso garante que `useStations.ts` muda apenas a URL — lógica do frontend intacta.
+**Variáveis de ambiente:**
+- Railway: `DATABASE_URL` (injetado automaticamente pelo Postgres plugin), `SYNC_INTERVAL_CRON`
+- Vercel: `VITE_API_URL=https://brp-simulator-production.up.railway.app`
+
+### Repositório
+
+- GitHub: https://github.com/lucascc19/brp-simulator
+- CI/CD: push para `main` redeploya automaticamente em ambas as plataformas
 
 ---
 
-### Sync Service (`server/src/sync.ts`)
+## Bonus — Time Travel (pós Fase 4)
 
-```
-1. fetch https://api.citybik.es/v2/networks/bicicletar
-2. Para cada station da resposta:
-   a. upsert em Station (id, name, lat, lng, capacity)
-   b. insert em Snapshot (freeBikes, emptySlots, fetchedAt = now())
-3. Log: X estações sincronizadas em Y ms
-```
+Com snapshots armazenados, é possível adicionar um seletor de data/hora na UI para carregar o estado do sistema em qualquer momento passado — útil para o TCC mostrar a evolução do desequilíbrio ao longo do dia.
 
-Agendado via `node-cron` a cada 5 minutos (configurável em `.env`).
-
----
-
-### Docker (`docker-compose.yml`)
-
-```yaml
-services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: brp
-      POSTGRES_USER: brp
-      POSTGRES_PASSWORD: brp
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U brp"]
-      interval: 5s
-      retries: 5
-
-volumes:
-  pgdata:
-```
-
----
-
-### Mudanças no frontend
-
-| Arquivo | O que muda |
-|---------|------------|
-| `src/hooks/useStations.ts` | URL muda de CityBikes para `VITE_API_URL ?? 'https://api.citybik.es/...'` — fallback mantém funcionamento sem backend |
-| `.env` (novo) | `VITE_API_URL=http://localhost:3001` em dev |
-
----
-
-### Scripts (raiz `package.json`)
-
-```json
-"server:dev":   "tsx watch server/src/index.ts",
-"server:sync":  "tsx server/src/sync.ts",
-"db:migrate":   "cd server && npx prisma migrate dev",
-"db:studio":    "cd server && npx prisma studio"
-```
-
----
-
-### Bonus — Time Travel (pós Fase 4)
-
-Com snapshots armazenados, será possível adicionar um seletor de data/hora na UI para carregar o estado do sistema em qualquer momento passado — útil para o TCC mostrar a evolução do desequilíbrio ao longo do dia.
-
----
-
-## Ordem de entrega
-
-| # | Feature | Complexidade | Status |
-|---|---------|--------------|--------|
-| 1 | Filtros de status | Baixa | ✅ Concluído |
-| 2 | Busca de estação | Baixa | ✅ Concluído |
-| 3 | Tipos + algoritmo guloso | Média | ✅ Concluído |
-| 4 | GRASP | Média-Alta | ✅ Concluído |
-| 5 | RouteLayer + animação | Média | ✅ Concluído |
-| 6 | SimulatorPanel + RouteStats | Média | ✅ Concluído |
-| 7 | Estado pós-simulação nos markers | Baixa | ✅ Concluído |
-| 8 | StationCard antes/depois | Baixa | ✅ Concluído |
-| 9 | Toggle estado real / resultado | Baixa | ✅ Concluído |
-| 10 | Docker + PostgreSQL + Prisma schema | Baixa | ⏳ Pendente |
-| 11 | Sync Service + cron | Média | ⏳ Pendente |
-| 12 | API REST (Fastify) | Média | ⏳ Pendente |
-| 13 | Trocar URL no useStations | Baixa | ⏳ Pendente |
+O endpoint `GET /api/stations?at=<ISO>` já está implementado e pronto para ser conectado à UI.
